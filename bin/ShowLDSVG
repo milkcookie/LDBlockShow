@@ -1,0 +1,595 @@
+#!/usr/bin/perl -w
+use strict;
+use lib "/hwfssz4/BC_PUB/Software/03.Soft_ALL/PerlInfo/lib/perl5/";
+use Getopt::Long;
+use FindBin qw($Bin);
+use SVG;
+use Data::Dumper;
+#explanation:this program is edited to 
+#edit by HeWeiMing;   Sat Feb 27 10:10:13 CST 2010
+#Version 1.0    hewm@genomics.cn 
+my $indata;
+my $OutPut;
+my $help;
+my $NoLogP;
+
+my $crBegin="255,255,255";
+my $crEnd="255,0,0";
+my $NumGradien=100;
+my $polygonbin=50;
+my $grid_color="white";
+my $strokewidth=1;
+my $NoGrid ;
+my $InGWAS ;
+my $Cutline ;
+
+sub  usage2
+{
+	print STDERR <<USAGE;
+
+	 Version:1.2         hewm\@genomics.cn
+
+		Options
+
+		 -InPreFix    <s> : InPut Region LD Result Frefix
+		 -OutPut      <s> : OutPut svg file result
+
+		 -InGWAS      <s> : InPut GWAS Pvalue File(chr site Pvalue)
+		 -NoLogP          : Do not get the log Pvalue 
+		 -Cutline     <s> : show the cut off line of Pvlaue
+
+		 -crBegin     <s> : In Start Color RGB [255,255,255]
+		 -crEnd       <s> : In End Color RGB [255,0,0]
+		 -NumGradien  <s>  Number of Gradien col [100]
+
+		 -CrGrid      <s> : the color of grid stroke [white]
+		 -WidthGrid   <s> : the stroke-width of gird [1]
+		 -NoGrid          : No Show the gird col		 
+
+
+USAGE
+}
+
+
+
+
+GetOptions(
+	"InPreFix:s"=>\$indata,
+	"OutPut:s"=>\$OutPut,
+	"crBegin:s"=>\$crBegin,
+	"crEnd:s"=>\$crEnd,
+	"CrGrid:s"=>\$grid_color,
+	"InGWAS:s"=>\$InGWAS,
+	"Cutline:s"=>\$Cutline,
+	"NumGradien:s"=>\$NumGradien,
+	"WidthGrid:s"=>\$strokewidth,
+	"help"=>\$help,
+	"NoLogP"=>\$NoLogP,
+	"NoGrid"=>\$NoGrid,
+);
+
+sub  usage
+{
+	print STDERR <<USAGE;
+
+	 Version:1.2         hewm\@genomics.cn
+
+		Options
+
+		 -InPreFix    <s> : InPut Region LD Result Frefix
+
+		 -OutPut      <s> : OutPut svg file result
+
+		 -help            : Show more help with more parameter
+
+USAGE
+}
+
+
+
+#############swimming in the sky and flying in the sea #########
+
+if (  defined($help)  )
+{
+	usage2 ;
+	exit(1) ;
+}
+
+if(  !defined($indata)  )
+{
+	usage ;
+	exit(1) ;
+}
+my $SiteFInfo="$indata.site.gz";
+my $SiteLD="$indata.TriangleRR.gz";
+
+
+if (!(-e $SiteFInfo  ))
+{
+	print "\t\tCan't Found the Site file : $SiteFInfo \n";
+	exit ;
+}
+if (!(-e $SiteLD  ))
+{
+	print "\t\tCan't Found the Site file : $SiteLD \n";
+	exit ;
+}
+
+
+
+#open (IA,"$SiteFInfo") || die "input file can't open $!";
+open (IA,"gzip -cd $SiteFInfo | ") || die "input file can't open $!";
+my @ArrSNP ;
+my $SNPNumber=0;
+my %hashSNP=();
+my $chrName="";
+while(<IA>)
+{
+	chomp ;
+	my @inf=split ;
+	$ArrSNP[$SNPNumber]=$inf[1];
+	$hashSNP{$inf[1]}=$SNPNumber;
+	$SNPNumber++;
+	$chrName=$inf[0];
+}
+close  IA ;
+my $Accu="%.2f";
+
+if ($SNPNumber>5000)
+{
+	print "Too  many SNP site $SNPNumber , I suggest that you randomly select fewer sites to reshow , and here I try to draw ...";
+	$polygonbin=int($polygonbin/15);
+	$Accu="%.0f";
+	$strokewidth=0;
+}
+elsif  ($SNPNumber>1000)
+{
+	$polygonbin=int($polygonbin/10);
+	$Accu="%.0f";
+	$strokewidth=0;
+}
+elsif   ($SNPNumber>500)
+{
+	$polygonbin=int($polygonbin/5);
+	$Accu="%.1f";
+	$strokewidth=0;
+}
+elsif   ($SNPNumber>100)
+{
+	$strokewidth=0;	
+}
+
+if (defined $NoGrid)
+{
+	$strokewidth=0;
+}
+
+my $Fig=$SNPNumber*$polygonbin;
+
+my $sdlf=$Fig*0.05; 
+my $LineH=$Fig*0.25;
+
+my ($up, $down, $left, $right) = ($sdlf,$sdlf,$sdlf*2, $sdlf);
+
+my $width=$left+$right+$Fig;
+
+my $LingGG=$Fig*0.38;
+if  ( defined($InGWAS))
+{
+	$up+=$LingGG;
+}
+
+
+my $height=$up+$down+$Fig/2+$LineH;
+
+
+print STDERR "Start draw... SVG info: SNPNumber :$SNPNumber , SVG (width,height) = ($width,$height)\n";
+my $svg = SVG->new('width',$width,'height',$height);
+$SNPNumber--;
+
+my @ArryCol=();
+if  ($NumGradien<10)
+{
+	print  "Color Gradien  Numner  must > 10 : $NumGradien\n";
+	exit ;
+}
+
+my @StartRGB=split /\,/,$crBegin ; 
+my @EndRGB=split /\,/,$crEnd ;
+
+my $Atmp=$Fig/40;
+my $Btmp=$Fig/3;
+
+my $SedHH=$LineH/2;
+if  ($SedHH< $polygonbin*2) {$SedHH=$polygonbin*2;}
+
+my $fontsize=$SedHH/10;
+my $StrokeWidthV2=$fontsize/8;  if  ($StrokeWidthV2<1) {$StrokeWidthV2=1;}
+
+
+my $X1=$left+$Fig*2/3+$Btmp*0/$NumGradien;
+my $X2=$left+$Fig*2/3+$Btmp*($NumGradien+1)/$NumGradien;
+my $Y2=$height-$down;
+my $Y1= $Y2-$Atmp;
+
+my $path = $svg->get_path(
+	x => [$X1, $X1, $X2,$X2],
+	y => [$Y1, $Y2, $Y2,$Y1],
+	-type => 'polygon');
+
+$svg->polygon(
+	%$path,
+	style => {
+		'fill' =>'none',
+		'stroke'         => 'black',
+		'stroke-width'   =>  $StrokeWidthV2,
+		'stroke-opacity' =>  1,
+		'fill-opacity'   =>  1,
+	},
+);
+
+
+$svg->text('text-anchor','middle','x',int ($left+$Fig*2/3+$Btmp*0.5),'y',$height-$down-$Atmp*2,'-cdata',"R^2 Color Key",'font-family','Arial','font-size',$Atmp);
+$svg->text('text-anchor','middle','x',int ($left+$Fig*2/3),'y',$height-$down+$Atmp,'-cdata',"0.0",'font-family','Arial','font-size',$Atmp);
+$svg->text('text-anchor','middle','x',int ($left+$Fig*2/3+$Btmp),'y',$height-$down+$Atmp,'-cdata',"1.0",'font-family','Arial','font-size',$Atmp);
+
+foreach my $k (0..$NumGradien)
+{
+	my $RR=int($StartRGB[0]+($EndRGB[0]-$StartRGB[0])*$k*1.0/$NumGradien);
+	my $GG=int($StartRGB[1]+($EndRGB[1]-$StartRGB[1])*$k*1.0/$NumGradien);
+	my $BB=int($StartRGB[2]+($EndRGB[2]-$StartRGB[2])*$k*1.0/$NumGradien);
+	$ArryCol[$k]="$RR,$GG,$BB";
+
+	my $X1=$left+$Fig*2/3+$Btmp*$k/$NumGradien;
+	my $X2=$left+$Fig*2/3+$Btmp*($k+1)/$NumGradien;
+	my $Y2=$height-$down;
+	my $Y1= $Y2-$Atmp;
+
+	my $path = $svg->get_path(
+		x => [$X1, $X1, $X2,$X2],
+		y => [$Y1, $Y2, $Y2,$Y1],
+		-type => 'polygon');
+
+	$svg->polygon(
+		%$path,
+		style => {
+			'fill'           => "rgb($RR,$GG,$BB)",
+			'stroke'         => 'black',
+			'stroke-width'   =>  0,
+			'stroke-opacity' =>  1,
+			'fill-opacity'   =>  1,
+		},
+	);
+}
+
+
+#open (IB,"$SiteLD") || die "input file can't open $!";
+open (IB,"gzip -cd $SiteLD | ") || die "input file can't open $!";
+
+my @LDdata=();
+my $count=0;
+my $spilitBin=1.00/$NumGradien;
+
+
+while(<IB>)
+{
+	chomp ;
+	my @inf=split ;
+	$LDdata[$count][$count]=1.0;
+	foreach my $k (0..$#inf)
+	{
+		my $RRcol=int($inf[$k]/$spilitBin);
+		my $key2=$k+1+$count;
+		$LDdata[$count][$key2]=$RRcol;
+		$LDdata[$key2][$count]=$RRcol;
+	}
+	$count++;
+}
+close IB;
+
+
+my $halfbin=int($polygonbin/2);
+
+my $BlcokSite=$ArrSNP[$SNPNumber]-$ArrSNP[0];
+my $BlcokLength= sprintf ($Accu,$BlcokSite/1000.0);
+my $XX1=$left; my $XX2=$left+$SNPNumber*$polygonbin;
+my $YY1=$up+$LineH-$SedHH;
+
+
+my $YY2=$YY1+$sdlf;
+
+
+$svg->text('text-anchor','middle','x',int (($XX1+$XX2)/2),'y',$YY1-$fontsize,'-cdata',"$chrName Region:$BlcokLength (kb)",'font-family','Arial','font-size',$fontsize);
+$svg->text('text-anchor','middle','x',int ($XX1),'y',$YY1-$fontsize,'-cdata',"Start:$ArrSNP[0]",'font-family','Arial','font-size',$fontsize);
+$svg->text('text-anchor','middle','x',int ($XX2),'y',$YY1-$fontsize,'-cdata',"End:$ArrSNP[$SNPNumber]",'font-family','Arial','font-size',$fontsize);
+
+
+$path = $svg->get_path(
+	x => [$XX1, $XX1, $XX2,$XX2],
+	y => [$YY1, $YY2, $YY2,$YY1],
+	-type => 'polygon');
+$svg->polygon(
+	%$path,
+	style => {
+		'fill'           => "rgb(128,255,128)",
+		'stroke'         => 'black',
+		'stroke-width'   =>  0,
+		'stroke-opacity' =>  1,
+		'fill-opacity'   =>  1,
+	},
+);
+
+
+my $ratio=($XX2-$XX1)*1.0/($ArrSNP[$SNPNumber]-$ArrSNP[0]);
+
+my %RmdupSite1=();
+my %RmdupSite2=();
+
+foreach my $key2 (0..$SNPNumber)
+{
+	my $Start=$key2+1;
+	my $XStart=$left+$key2*$polygonbin+$halfbin;
+	my $ThisXX=$left+($ArrSNP[$key2]-$ArrSNP[0])*$ratio;
+
+	my $tempXXA=$XStart-$halfbin;
+	my $tempYYA=$up+$LineH-$polygonbin;
+	my $keyRm="$ThisXX\_$YY2\_$tempXXA\_$tempYYA";
+
+	if ( !exists $RmdupSite1{$keyRm} )
+	{
+		$svg->line('x1',$ThisXX,'y1',$YY2,'x2',$XStart-$halfbin,'y2',$up+$LineH-$polygonbin,'stroke','green','stroke-width',$StrokeWidthV2); 
+		$RmdupSite1{$keyRm}=1;	
+	}
+
+	$keyRm="$ThisXX\_$YY1\_$ThisXX\_$YY2";
+	if (!exists $RmdupSite2{$keyRm})
+	{
+		$svg->line('x1',$ThisXX,'y1',$YY1,'x2',$ThisXX,'y2',$YY2,'stroke','black','stroke-width',$StrokeWidthV2); 
+		$RmdupSite2{$keyRm}=1;
+	}
+
+	foreach my $key1  ($Start..$SNPNumber) 
+	{
+		my $YY=sprintf ( $Accu, $up+ ($key1-$key2-1)*$halfbin+$LineH);
+		my $XX=sprintf ( $Accu, $XStart + ($key1-$key2-1)*$halfbin);
+		$keyRm="$XX\_$YY";
+		if (exists $RmdupSite1{$keyRm}){next;}
+		$RmdupSite1{$keyRm}=1;
+
+		my $X1=$XX;   my $Y1=$YY-$halfbin ;
+		my $X2=$XX-$halfbin;   my $Y2=$YY ;
+		my $X3=$XX;   my $Y3=$YY+$halfbin ;
+		my $X4=$XX+$halfbin;   my $Y4=$YY ;
+		my $path = $svg->get_path(
+			x => [$X1, $X2, $X3,$X4],
+			y => [$Y1, $Y2, $Y3,$Y4],
+			-type => 'polygon');
+		$svg->polygon(
+			%$path,
+			style => {
+				'fill'           => "rgb($ArryCol[$LDdata[$key1][$key2]])",
+				'stroke'         =>  $grid_color,
+				'stroke-width'   =>  $strokewidth,
+				'stroke-opacity' =>  1,
+				'fill-opacity'   =>  1,
+			},
+		)
+	}
+}
+
+$SiteLD="$indata.blocks.gz";
+open (IC,"gzip -cd $SiteLD | ") || die "input file can't open $!";
+<IC>;
+while(<IC>)
+{
+	chomp ; 
+	my @inf=split ;
+	my $SNPStart=$hashSNP{$inf[1]};
+	my $X1=$left+$SNPStart*$polygonbin;
+	my $SNPEnd=$hashSNP{$inf[2]};
+	my $X2=$left+$SNPEnd*$polygonbin;
+	my $YY=sprintf ("%.1f", $up+$LineH);
+	my $X3=($X1+$X2)/2.0;
+	my $Y3=sprintf ("%.1f", $up+ ($SNPEnd-$SNPStart)*$halfbin+$LineH);
+
+
+	my $path = $svg->get_path(
+		x => [$X1, $X3, $X2],
+		y => [$YY, $Y3, $YY],
+		-type => 'polygon');
+
+	$svg->polygon(
+		%$path,
+		style => {
+			'fill' =>'none',
+			'stroke'         => 'black',
+			'stroke-width'   =>  $StrokeWidthV2,
+			'stroke-opacity' =>  1,
+			'fill-opacity'   =>  1,
+		},
+	);
+
+
+}
+
+close IC;
+
+
+
+#################  Deal the GWAS Result ##############
+
+
+if  ( defined($InGWAS))
+{
+	$up-=$LingGG;
+	$LingGG=$LingGG-$sdlf-$fontsize*2;
+
+	open (IE,"$InGWAS") || die "input file can't open $!";
+	my %hashPvalue=();
+	my $MaxP="";
+	my $MinP="";
+	while(<IE>)
+	{
+		chomp ;
+		my @inf=split ;
+		next if  ($inf[0] ne $chrName );
+		next if  ($inf[1] >  $ArrSNP[$SNPNumber]);
+		next if  ($inf[1] <  $ArrSNP[0]);
+		$hashPvalue{$inf[1]}=$inf[2];
+		if  ($MaxP eq "" )
+		{
+			$MaxP=$inf[2];
+		}
+		elsif ($MaxP < $inf[2])
+		{
+			$MaxP=$inf[2];
+		}
+
+		if  ($MinP eq "" )
+		{
+			$MinP=$inf[2];
+		}
+		elsif ($MinP > $inf[2])
+		{
+			$MinP=$inf[2];
+		}
+	}
+
+	close IE;
+
+	$strokewidth = int ($fontsize/8)	;
+	if  ($strokewidth<1) {$strokewidth=1;}
+	$svg->line('x1',$left,'y1',$up+$LingGG,'x2',$XX2,'y2',$up+$LingGG,'stroke','black','stroke-width',$strokewidth); #X
+	$svg->line('x1',$left,'y1',$up+$LingGG,'x2',$left,'y2',$up,'stroke','black','stroke-width',$strokewidth); # Y
+
+	if (defined $NoLogP)
+	{
+		$svg->text('x',$left/2,'y',$up+$LingGG/2,'-cdata',"Pvlaue",'font-size',$fontsize,'font-family','Arial');
+	}
+	else
+	{
+		foreach my $key (keys %hashPvalue)
+		{
+			$hashPvalue{$key}=0-((log($hashPvalue{$key}))/log(10));
+		}
+		my $temp=$MinP;
+		   $MinP=0-sprintf ("%.2f",(log($MaxP)/log(10)));
+		   $MaxP=0-sprintf ("%.2f",(log($temp)/log(10)));
+		my $TextXX=$left/2 ; my $TextYY=$up+$LingGG/2;
+		$svg->text('x',$left/2,'y',$up+$LingGG/2,'-cdata',"-log(Pvlaue)",'font-size',$fontsize,'font-family','Arial');
+	}
+
+	if (abs($MinP)<1 ){$MinP=0;}
+
+	my $Msx=$LingGG/($MaxP-$MinP);
+	my $yltmp=$left/5;
+
+	my $binYcut=5;
+	foreach my $k (0..$binYcut)
+	{
+		my $AHHtmp=$LingGG*$k/$binYcut;
+		my $YV=$up+$LingGG-$AHHtmp;
+		my $Ynum=$MinP+($MaxP-$MinP)*$k/$binYcut;
+		my $bb=length((split(/\./,$Ynum))[-1]);
+		if ($bb>3)
+		{
+			$Ynum=sprintf ("%.2f",$Ynum);
+		}
+		$svg->line('x1',$left-$yltmp,'y1',$YV,'x2',$left,'y2',$YV,'stroke','black','stroke-width',$strokewidth);
+		$svg->text('x',$left-$yltmp-$yltmp,'y',$YV,'-cdata',"$Ynum",'font-size',$fontsize,'font-family','Arial');
+	}
+
+	if  (defined $Cutline )
+	{
+		if  ( ($Cutline >  $MinP)   &&  ($Cutline  < $MaxP) )
+		{
+			my $labYY=$up+$LingGG-($Cutline-$MinP)*$Msx;
+			my $AA=$strokewidth*3; my $BB=$strokewidth*2;
+			$svg->line('x1',$left,'y1',$labYY,'x2',$XX2,'y2',$labYY,'stroke','red','stroke-width',$strokewidth,'stroke-dasharray',"$AA $BB"); #cut off
+		}
+	}
+
+	my $cirsize=$fontsize/2;
+	foreach my $ThisSite ( keys  %hashPvalue)
+	{
+		my $labXX=$left+($ThisSite-$ArrSNP[0])*$ratio;
+		my $labYY=$up+$LingGG-($hashPvalue{$ThisSite}-$MinP)*$Msx;
+		my $cirCor="blue";  if  ($hashPvalue{$ThisSite}>6 ) { $cirCor="red"}
+		   $svg->circle(cx=>$labXX, cy=>$labYY, r=>$cirsize, fill => $cirCor );
+	}
+}
+
+
+
+
+#################  Out Put the Result ##############
+
+
+if  (  defined($OutPut))
+{
+	open (OUT,">$OutPut") || die "input file can't open $!";
+	print OUT $svg->xmlify();
+	close OUT ;
+
+
+
+	print "convert   SVG ---> PNG ...\n";
+
+	my $convert="/usr/bin/convert";
+	if  ( !(-e $convert) )
+	{
+		$convert=`which convert`;chomp $convert;
+	}
+
+	my $SVG2XXX="$Bin/svg_kit/svg2xxx.pl";
+
+
+	my $bbb=$OutPut ;
+	if ($bbb=~s/.svg$/.png/)
+	{
+	}
+	else
+	{
+		$bbb=$bbb.".png";
+	}
+
+
+	if (  ( $SNPNumber  <  500)    &&  ( (-e $convert) ) )
+	{
+		system (" $convert  $OutPut    $bbb   ");
+		exit(1);
+	}
+
+
+	if  ( -e $SVG2XXX )
+	{
+		system ("  perl   $SVG2XXX    $OutPut   " );
+		exit(1);
+	}
+
+
+
+	if  ( !(-e $convert) )
+	{
+		print "Can't find the [ convert ] bin, You shoud install the [convert] First,then:\t\t";
+		print " convert  $OutPut    $bbb  \n";
+		exit(1);
+	}
+	else
+	{
+		system (" $convert  $OutPut    $bbb   ");
+	}
+
+
+
+
+
+}
+else
+{
+	print $svg->xmlify();
+}
+
+
+######################swimming in the sky and flying in the sea ###########################
+
